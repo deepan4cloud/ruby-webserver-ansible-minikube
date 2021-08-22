@@ -1,0 +1,78 @@
+---
+- name: Dependency (Docker, Minikube, Kubectl) installation in bare metal Ubuntu machine
+  hosts: localhost
+  gather_facts: False
+  become: yes
+
+  tasks:
+
+    - name: apt update
+      apt:
+        update_cache: yes
+
+    - name: Install prerequisites for Docker repository
+      apt:
+        pkg:
+        - apt-transport-https
+        - ca-certificates
+        - curl
+        - gnupg2
+        - software-properties-common
+
+    - name: Add docker apt key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add docker apt repo
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu/dists/focal/stable/"
+        state: present
+        update_cache: yes
+    
+    - name: Install docker and it's dependencies
+      apt:
+        pkg:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+        state: present
+
+    - name: Start and enable docker daemon
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Install Minikube
+      get_url: 
+        url: https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+        dest: /usr/local/bin/minikube
+        mode: 0755
+
+    - name: Add kubectl apt key
+      apt_key:
+        url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+        state: present
+    
+    - name: Touch a file
+      file:
+        path: /etc/apt/sources.list.d/kubernetes.list
+        state: touch
+
+    - name: Add repo to the file
+      shell: |
+        echo "deb http://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee -a /etc/apt/sources.list.d/kubernetes.list
+
+    - name: Install Kubectl & git
+      apt:
+        pkg:
+        - kubectl
+        - git
+        state: present
+        
+
+
+
+
+

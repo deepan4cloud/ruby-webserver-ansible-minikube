@@ -1,0 +1,15 @@
+ansible_python_interpreter: '{{ ansible_playbook_python }}'
+base_dir: templates
+app_dir: "{{ base_dir }}/{{ app.name }}"
+name_space: webserver
+image_name: webserver
+image_registry: devopsdeepan
+image_tag: latest
+deployment_file: app-deployment-new.yaml
+
+app:
+  name: webserver
+  container_name: webserver
+  port: 80
+  livenessProbe_path: "/healthcheck"
+  replicas: 4

@@ -1,0 +1,110 @@
+---
+- name: MiniKube-Deployment using Ansible Collections
+  hosts: localhost
+  gather_facts: False
+
+  vars_files:
+    - ./vars/kube-vars.yaml
+
+  pre_tasks:
+
+    - name: Check The Running Status Of Minikube.
+      command: minikube status
+      register: minikube_status
+      changed_when: false
+      ignore_errors: true
+
+    - name: Start Minikube If It's Not Running.
+      command: minikube start --cache-images=true --addons dashboard --addons metrics-server
+      when: "not minikube_status.stdout or 'Running' not in minikube_status.stdout"
+
+  tasks:
+
+    - name: Get Existing Image Name/Hash.
+      shell: |
+        eval $(minikube -p minikube docker-env)
+        docker images -q "{{ image_name }}"
+      register: image_hash
+      changed_when: false
+
+    - name: Build Image If It's Not Already Built or Available.
+      shell: |
+        eval $(minikube -p minikube docker-env)
+        docker build -t "{{ image_name }}:{{ image_tag }}" .
+      when: not image_hash.stdout
+
+    - name: Create App Manifest Directory
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+
+    - name: Create "{{ name_space }}" namespace if not exists.
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Namespace
+        name: "{{ name_space }}"
+        state: present
+
+    - name: Create a Deployment for "{{ app.name }}" in K8s.
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            labels:
+              app: "{{ app.name }}"
+            name: "{{ app.name }}"
+            namespace: "{{ name_space }}"
+          spec:
+            replicas: 4
+            selector:
+              matchLabels:
+                app: "{{ app.name }}"
+            strategy:
+              rollingUpdate:
+                maxSurge: 25%
+                maxUnavailable: 25%
+              type: RollingUpdate
+            template:
+              metadata:
+                labels:
+                  app: "{{ app.name }}"
+              spec:
+                containers:
+                - image: "{{ image_name }}:latest"
+                  imagePullPolicy: IfNotPresent
+                  name: "{{ app.name }}"
+                  ports:
+                  - containerPort: 80
+                    protocol: TCP
+                  livenessProbe:
+                    tcpSocket:
+                      port: 80
+                    initialDelaySeconds: 90
+                    periodSeconds: 10
+
+    - name: Create a service for "{{ app.name }}" Deployment in K8s.
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: "{{ app.name }}-svc"
+            namespace: "{{ name_space }}"
+          spec:
+            type: LoadBalancer
+            ports:
+              - port: 80
+            selector:
+              app: "{{ app.name }}"
+
+    - name: Exposing Ruby Webserver url on the host via Minikube.
+      command: minikube service "{{ app.name }}-svc" --url -n "{{ name_space }}"
+      changed_when: false
+      register: minikube_service
+      
+    - debug:
+        msg: "Ruby WEB Server URL: {{ minikube_service['stdout_lines'][0] }}"
+        

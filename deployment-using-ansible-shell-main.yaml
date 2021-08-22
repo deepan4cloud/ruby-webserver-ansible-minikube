@@ -1,0 +1,74 @@
+---
+- name: MiniKube-Deployment
+  hosts: localhost
+  gather_facts: False
+
+  vars_files:
+    - ./vars/kube-vars.yaml
+
+  pre_tasks:
+
+    - name: Check The Running Status Of Minikube.
+      command: minikube status
+      register: minikube_status
+      changed_when: false
+      ignore_errors: true
+
+    - name: Start Minikube If It's Not Running.
+      command: minikube start --cache-images=true --addons dashboard --addons metrics-server --addons
+      when: "not minikube_status.stdout or 'Running' not in minikube_status.stdout"
+
+  tasks:
+
+    - name: Get Existing Image Name/Hash.
+      shell: |
+        eval $(minikube -p minikube docker-env)
+        docker images -q {{ image_name }}
+      register: image_hash
+      changed_when: false
+
+    - name: Build Image If It's Not Already Built or Available.
+      shell: |
+        eval $(minikube -p minikube docker-env)
+        docker build -t {{ image_name }}:{{ image_tag }} .
+      when: not image_hash.stdout
+
+    - name: Check Existing Name Space
+      shell: |
+        eval $(minikube -p minikube docker-env)
+        kubectl get ns {{ name_space }} | awk 'FNR == 2 {print $1}'
+      register: ns_status
+      changed_when: false
+
+    - name: Create App Manifest Directory
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+
+    - name: Create a New Name Space if Not Exists
+      shell: |
+        eval $(minikube -p minikube docker-env)
+        kubectl create ns {{ name_space }}
+      when: not ns_status.stdout
+
+    - name: Create Manifest Template for Deployment
+      template:
+        src: "{{ deployment_file }}"
+        dest: "{{ app_dir }}/{{ deployment_file }}"
+      register: deploy_template
+
+    - name: apply kubernetes deployment
+      shell: |
+        eval $(minikube -p minikube docker-env)
+        kubectl create -f {{ app_dir }}/{{ deployment_file }}
+      register: deployment_status
+      changed_when: false
+
+    - name: Exposing Ruby Webserver url on the host via Minikube.
+      command: minikube service {{ app.name }}-svc --url -n {{ name_space }}
+      changed_when: false
+      register: minikube_service
+      
+    - debug:
+        msg: "Ruby WEB Server URL: {{ minikube_service['stdout_lines'][0] }}"
+        
